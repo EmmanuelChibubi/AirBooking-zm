@@ -1,30 +1,45 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { TextField, Button, Container, Typography, Box, CircularProgress, Alert } from '@mui/material';
+import { TextField, Button, Container, Typography, Box, CircularProgress, Alert, IconButton, InputAdornment } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 const Register = () => {
     const [formData, setFormData] = useState({
         username: '',
         email: '',
         password: '',
+        confirmPassword: '',
     });
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const navigate = useNavigate();
 
-    const { username, email, password } = formData;
+    const { username, email, password, confirmPassword } = formData;
 
     const onChange = e => setFormData({ ...formData, [e.target.name]: e.target.value });
 
+    const handleClickShowPassword = () => setShowPassword((show) => !show);
+    const handleMouseDownPassword = (event) => {
+        event.preventDefault();
+    };
+
     const onSubmit = async e => {
         e.preventDefault();
+
+        if (password !== confirmPassword) {
+            setError('Passwords do not match');
+            return;
+        }
+
         setLoading(true);
         setError('');
         setSuccess('');
         try {
-            const res = await axios.post('http://localhost:8000/api/auth/register/', {
+            const res = await axios.post('http://127.0.0.1:8000/api/auth/register/', {
                 username,
                 email,
                 password,
@@ -33,12 +48,12 @@ const Register = () => {
             console.log(res.data);
             navigate('/login');
         } catch (err) {
-            console.error(err.response.data);
+            console.error('Registration error:', err);
             if (err.response && err.response.data) {
                 const errorMessages = Object.values(err.response.data).flat();
                 setError(errorMessages.join(' '));
             } else {
-                setError('Registration failed. Please try again.');
+                setError(`Registration failed: ${err.message}. Check if server is running at 127.0.0.1:8000`);
             }
         } finally {
             setLoading(false);
@@ -92,13 +107,53 @@ const Register = () => {
                         fullWidth
                         name="password"
                         label="Password"
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         id="password"
                         autoComplete="new-password"
                         value={password}
                         onChange={onChange}
                         error={!!error && error.includes('password')}
                         helperText={error.includes('password') ? error : ''}
+                        InputProps={{
+                            endAdornment: (
+                                <InputAdornment position="end">
+                                    <IconButton
+                                        aria-label="toggle password visibility"
+                                        onClick={handleClickShowPassword}
+                                        onMouseDown={handleMouseDownPassword}
+                                        edge="end"
+                                    >
+                                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                                    </IconButton>
+                                </InputAdornment>
+                            ),
+                        }}
+                    />
+                    <TextField
+                        margin="normal"
+                        required
+                        fullWidth
+                        name="confirmPassword"
+                        label="Confirm Password"
+                        type={showPassword ? 'text' : 'password'}
+                        id="confirmPassword"
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={onChange}
+                        InputProps={{
+                            endAdornment: (
+                                <InputAdornment position="end">
+                                    <IconButton
+                                        aria-label="toggle password visibility"
+                                        onClick={handleClickShowPassword}
+                                        onMouseDown={handleMouseDownPassword}
+                                        edge="end"
+                                    >
+                                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                                    </IconButton>
+                                </InputAdornment>
+                            ),
+                        }}
                     />
                     <Button
                         type="submit"

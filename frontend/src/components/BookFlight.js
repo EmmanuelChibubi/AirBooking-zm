@@ -4,6 +4,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Container, Typography, Box, CircularProgress, Alert, Paper, Button, Card, CardContent, Grid } from '@mui/material';
 import { useAuth } from '../AuthContext';
 import dayjs from 'dayjs';
+import DownloadIcon from '@mui/icons-material/Download';
+import { downloadBookingPDF } from '../utils/pdfGenerator';
 
 const SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F']; // Example seat rows
 
@@ -19,40 +21,39 @@ const BookFlight = () => {
     const [bookingSuccess, setBookingSuccess] = useState('');
     const [selectedSeats, setSelectedSeats] = useState([]);
     const [occupiedSeats, setOccupiedSeats] = useState([]);
+    const [bookedData, setBookedData] = useState(null);
 
     useEffect(() => {
-        const fetchFlightDetails = async () => {
-            if (!isAuthenticated) {
-                setError('Please log in to book flights.');
-                setLoading(false);
-                return;
-            }
-
+        const fetchDetails = async (retryWithoutToken = false) => {
             try {
-                const token = localStorage.getItem('access_token');
-                const flightRes = await axios.get(`http://localhost:8000/api/flights/${flightId}/`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
+                const token = retryWithoutToken ? null : localStorage.getItem('access_token');
+                const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+                const flightRes = await axios.get(`http://127.0.0.1:8000/api/flights/${flightId}/`, {
+                    headers: headers,
                 });
                 setFlight(flightRes.data);
 
-                const occupiedSeatsRes = await axios.get(`http://localhost:8000/api/flights/${flightId}/occupied-seats/`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
+                const occupiedSeatsRes = await axios.get(`http://127.0.0.1:8000/api/flights/${flightId}/occupied-seats/`, {
+                    headers: headers,
                 });
                 setOccupiedSeats(occupiedSeatsRes.data);
 
             } catch (err) {
-                console.error(err.response?.data);
-                setError('Failed to fetch flight details or occupied seats. Please try again.');
+                if (err.response?.status === 401 && !retryWithoutToken) {
+                    console.warn("Fetch details failed with 401, retrying without token...");
+                    return fetchDetails(true);
+                }
+                console.error('Fetch flight details/occupied seats error:', err);
+                setError(`Failed to fetch flight details or occupied seats: ${err.response?.data?.detail || err.message}. Check if server is running at 127.0.0.1:8000`);
             } finally {
-                setLoading(false);
+                if (!retryWithoutToken) {
+                    setLoading(false);
+                }
             }
         };
 
-        fetchFlightDetails();
+        fetchDetails();
     }, [flightId, isAuthenticated]);
 
     const handleSeatClick = (seatNumber) => {
@@ -80,7 +81,7 @@ const BookFlight = () => {
         setBookingSuccess('');
         try {
             const token = localStorage.getItem('access_token');
-            const res = await axios.post('http://localhost:8000/api/bookings/',
+            const res = await axios.post('http://127.0.0.1:8000/api/bookings/',
                 { flight_id: flightId, payment_status: 'paid', seats_reserved: selectedSeats }, // Simulate payment as 'paid'
                 {
                     headers: {
@@ -88,11 +89,10 @@ const BookFlight = () => {
                     },
                 }
             );
-            setBookingSuccess('Flight booked successfully! Redirecting to your bookings...');
+            setBookingSuccess('Flight booked successfully! You can now download your e-ticket below.');
+            setBookedData(res.data);
             console.log('Booking successful:', res.data);
-            setTimeout(() => {
-                navigate('/my-bookings');
-            }, 2000); // Redirect after 2 seconds
+            // Removed auto-redirect to allow downloading the ticket
         } catch (err) {
             console.error(err.response?.data);
             setError(err.response?.data?.error || 'Failed to book flight. Please try again.');
@@ -144,36 +144,67 @@ const BookFlight = () => {
     const totalPrice = (selectedSeats.length * flight.price).toFixed(2);
 
     return (
-        <Container component="main" maxWidth="md" sx={{ mt: 4 }}>
-            <Paper elevation={3} sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Typography component="h1" variant="h5" mb={3}>
-                    Book Flight: {flight.flight_number}
+        <Container component="main" maxWidth="md" sx={{ mt: 4, mb: 8 }}>
+            <Paper elevation={0} className="glass-panel" sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: 4 }}>
+                <Typography component="h1" variant="h4" mb={1} sx={{ color: 'primary.main', fontWeight: 800 }}>
+                    Book Your Journey
                 </Typography>
-                <Card variant="outlined" sx={{ width: '100%', mb: 3 }}>
-                    <CardContent>
-                        <Typography variant="h6" component="div">
-                            {flight.departure_airport} to {flight.arrival_airport}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Depart: {dayjs(flight.departure_time).format('YYYY-MM-DD HH:mm')}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Arrive: {dayjs(flight.arrival_time).format('YYYY-MM-DD HH:mm')}
-                        </Typography>
-                        <Typography variant="h6" color="primary" mt={1}>
-                            Price per seat: ${flight.price}
-                        </Typography>
-                        <Typography variant="body2">
-                            Available Seats: {flight.available_seats} / {flight.total_seats}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Status: {flight.status.replace(/_/g, ' ').toUpperCase()}
-                        </Typography>
-                    </CardContent>
-                </Card>
+                <Typography variant="subtitle1" color="text.secondary" mb={3}>
+                    Flight {flight.flight_number} • {flight.departure_airport} to {flight.arrival_airport}
+                </Typography>
 
-                <Box sx={{ my: 3, width: '100%' }}>
-                    <Typography variant="h6" gutterBottom>Select Your Seats</Typography>
+                <Grid container spacing={3} sx={{ mb: 3 }}>
+                    <Grid item xs={12} md={8}>
+                        <Card variant="outlined" className="glass-card" sx={{ height: '100%', borderRadius: 4 }}>
+                            <CardContent>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                                    <Typography variant="h6" color="primary">Itinerary</Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        {flight.status === 'on_time' && <Box className="pulse-dot" />}
+                                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                                            {flight.status.replace(/_/g, ' ').toUpperCase()}
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                                <Grid container spacing={2}>
+                                    <Grid item xs={5}>
+                                        <Typography variant="caption" color="text.secondary">Departure</Typography>
+                                        <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{dayjs(flight.departure_time).format('HH:mm')}</Typography>
+                                        <Typography variant="caption">{dayjs(flight.departure_time).format('MMM DD, YYYY')}</Typography>
+                                    </Grid>
+                                    <Grid item xs={2} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Box sx={{ width: '100%', borderBottom: '2px dashed #ccc' }} />
+                                    </Grid>
+                                    <Grid item xs={5} sx={{ textAlign: 'right' }}>
+                                        <Typography variant="caption" color="text.secondary">Arrival</Typography>
+                                        <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{dayjs(flight.arrival_time).format('HH:mm')}</Typography>
+                                        <Typography variant="caption">{dayjs(flight.arrival_time).format('MMM DD, YYYY')}</Typography>
+                                    </Grid>
+                                </Grid>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                        <Card variant="outlined" className="glass-card" sx={{ height: '100%', borderRadius: 4, background: 'linear-gradient(135deg, #0A192F 0%, #172A45 100%) !important', color: 'white' }}>
+                            <CardContent>
+                                <Typography variant="h6" sx={{ color: '#FFD700', mb: 1 }}>Destination Info</Typography>
+                                <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <Typography variant="h3">☀️</Typography>
+                                    <Box>
+                                        <Typography variant="h5" sx={{ fontWeight: 'bold' }}>28°C</Typography>
+                                        <Typography variant="caption">Sunny at {flight.arrival_airport.split(' ').slice(-2, -1)}</Typography>
+                                    </Box>
+                                </Box>
+                                <Typography variant="body2" sx={{ mt: 2, opacity: 0.8 }}>
+                                    Expect clear skies for your arrival. Perfect travel weather!
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                </Grid>
+
+                <Box sx={{ my: 3, width: '100%', p: 3, bgcolor: 'background.default', borderRadius: 4 }}>
+                    <Typography variant="h6" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>Cabin Seat Selection</Typography>
                     <Grid container spacing={1} justifyContent="center">
                         {allSeats.map(seatNumber => {
                             const isOccupied = occupiedSeats.includes(seatNumber);
@@ -202,15 +233,34 @@ const BookFlight = () => {
 
                 <Button
                     variant="contained"
-                    color="primary"
+                    color="secondary"
                     fullWidth
+                    size="large"
                     onClick={handleBookFlight}
                     disabled={bookingLoading || selectedSeats.length === 0}
-                    sx={{ mt: 2 }}
+                    sx={{ mt: 2, py: 2, fontSize: '1.1rem', boxShadow: '0 8px 16px rgba(255,215,0,0.2)' }}
                 >
-                    {bookingLoading ? <CircularProgress size={24} color="inherit" /> : `Confirm Booking & Pay ($${totalPrice})`}
+                    {bookingLoading ? <CircularProgress size={24} color="inherit" /> : `Confirm & Pay $${totalPrice}`}
                 </Button>
-                {bookingSuccess && <Alert severity="success" sx={{ mt: 2 }}>{bookingSuccess}</Alert>}
+                {bookingSuccess && (
+                    <Alert
+                        severity="success"
+                        sx={{ mt: 2, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+                        action={
+                            <Button
+                                color="inherit"
+                                size="small"
+                                startIcon={<DownloadIcon />}
+                                onClick={() => downloadBookingPDF(bookedData)}
+                                sx={{ mt: 1 }}
+                            >
+                                Download Ticket (PDF)
+                            </Button>
+                        }
+                    >
+                        {bookingSuccess}
+                    </Alert>
+                )}
                 {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
             </Paper>
         </Container>

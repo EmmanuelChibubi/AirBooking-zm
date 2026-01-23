@@ -16,14 +16,47 @@ import { AuthProvider } from './AuthContext';
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#1976d2', // A shade of blue
+      main: '#0A192F', // Deep Navy
+      contrastText: '#FFFFFF',
     },
     secondary: {
-      main: '#dc004e', // A shade of red
+      main: '#FFD700', // Gold/Amber
+      contrastText: '#000000',
+    },
+    success: {
+      main: '#00BFA5', // Teal/Safe
+    },
+    background: {
+      default: '#F4F7F9',
     },
   },
   typography: {
-    fontFamily: 'Roboto, Arial, sans-serif',
+    fontFamily: '"Outfit", "Roboto", "Arial", sans-serif',
+    h3: {
+      fontWeight: 700,
+    },
+    h5: {
+      fontWeight: 600,
+    },
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 8,
+          textTransform: 'none',
+          fontWeight: 600,
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: 12,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+        },
+      },
+    },
   },
 });
 

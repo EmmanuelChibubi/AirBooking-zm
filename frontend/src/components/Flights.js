@@ -32,19 +32,21 @@ const Flights = () => {
     useEffect(() => {
         const fetchAirports = async () => {
             try {
-                const res = await axios.get('http://localhost:8000/api/airports/');
+                const res = await axios.get('http://127.0.0.1:8000/api/airports/');
                 setAirports(res.data);
             } catch (err) {
                 console.error('Failed to fetch airports:', err);
+                setError(`Failed to load airports: ${err.message}. Check if server is running at 127.0.0.1:8000`);
             }
         };
 
         const fetchAllFlights = async () => {
             try {
-                const res = await axios.get('http://localhost:8000/api/all-flights/');
+                const res = await axios.get('http://127.0.0.1:8000/api/all-flights/');
                 setAllFlights(res.data);
             } catch (err) {
                 console.error('Failed to fetch all flights:', err);
+                setError(`Failed to load flights: ${err.message}. Check if server is running at 127.0.0.1:8000`);
             }
         };
 
@@ -77,12 +79,6 @@ const Flights = () => {
         setFlights([]);
         setNoFlightsFound(false);
 
-        if (!isAuthenticated) {
-            setError('Please log in to search for flights.');
-            setLoading(false);
-            return;
-        }
-
         const params = {
             departure_airport,
             arrival_airport,
@@ -96,29 +92,58 @@ const Flights = () => {
             sort_order,
         };
 
-        try {
-            const token = localStorage.getItem('access_token');
-            const res = await axios.get('http://localhost:8000/api/flights/search/', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-                params: params,
-            });
-            setFlights(res.data);
-            if (res.data.length === 0) {
-                setNoFlightsFound(true);
+        const fetchFlights = async (retryWithoutToken = false) => {
+            try {
+                const token = retryWithoutToken ? null : localStorage.getItem('access_token');
+                const headers = token ? { Authorization: `Bearer ${token}` } : {};
+                const res = await axios.get('http://127.0.0.1:8000/api/flights/search/', {
+                    headers: headers,
+                    params: params,
+                });
+                setFlights(res.data);
+                if (res.data.length === 0) {
+                    setNoFlightsFound(true);
+                }
+            } catch (err) {
+                if (err.response?.status === 401 && !retryWithoutToken) {
+                    console.warn("Search failed with 401, retrying without token...");
+                    return fetchFlights(true);
+                }
+                console.error('Fetch flights error:', err);
+                const msg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Unknown error';
+                setError(`Failed to fetch flights: ${msg}. Please check if the server is running at 127.0.0.1:8000`);
+            } finally {
+                if (!retryWithoutToken) {
+                    setLoading(false);
+                }
             }
-        } catch (err) {
-            console.error(err.response?.data);
-            setError('Failed to fetch flights. Please try again.');
-        } finally {
-            setLoading(false);
-        }
+        };
+
+        await fetchFlights();
     };
 
+    const handleClearFilters = () => {
+        setFormData({
+            departure_airport: '',
+            arrival_airport: '',
+            departure_date: null,
+            flight_number: '',
+            min_price: '',
+            max_price: '',
+            start_date: null,
+            end_date: null,
+            sort_by: '',
+            sort_order: 'asc',
+        });
+        setFlights([]);
+        setNoFlightsFound(false);
+    };
+
+    const displayFlights = flights.length > 0 ? flights : allFlights;
+
     return (
-        <Container component="main" maxWidth="md" sx={{ mt: 4 }}>
-            <Paper elevation={3} sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <Container component="main" maxWidth="md" sx={{ mt: 4, mb: 8 }}>
+            <Paper elevation={0} className="glass-panel" sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: 4 }}>
                 <Typography component="h1" variant="h5" mb={3}>
                     Search Flights
                 </Typography>
@@ -186,7 +211,7 @@ const Flights = () => {
                                     label="Departure Date"
                                     value={departure_date}
                                     onChange={(date) => handleDateChange('departure_date', date)}
-                                    renderInput={(params) => <TextField {...params} margin="normal" fullWidth />}
+                                    slotProps={{ textField: { fullWidth: true, margin: 'normal' } }}
                                 />
                             </LocalizationProvider>
                         </Grid>
@@ -220,7 +245,7 @@ const Flights = () => {
                                     label="Start Date"
                                     value={start_date}
                                     onChange={(date) => handleDateChange('start_date', date)}
-                                    renderInput={(params) => <TextField {...params} margin="normal" fullWidth />}
+                                    slotProps={{ textField: { fullWidth: true, margin: 'normal' } }}
                                 />
                             </LocalizationProvider>
                         </Grid>
@@ -230,7 +255,7 @@ const Flights = () => {
                                     label="End Date"
                                     value={end_date}
                                     onChange={(date) => handleDateChange('end_date', date)}
-                                    renderInput={(params) => <TextField {...params} margin="normal" fullWidth />}
+                                    slotProps={{ textField: { fullWidth: true, margin: 'normal' } }}
                                 />
                             </LocalizationProvider>
                         </Grid>
@@ -268,14 +293,21 @@ const Flights = () => {
                             </FormControl>
                         </Grid>
                     </Grid>
-                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3, mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3, mb: 2, gap: 2 }}>
                         <Button
                             type="submit"
                             variant="contained"
                             disabled={loading}
-                            sx={{ width: '50%' }}
+                            sx={{ width: '40%' }}
                         >
                             {loading ? <CircularProgress size={24} color="inherit" /> : 'Search Flights'}
+                        </Button>
+                        <Button
+                            variant="outlined"
+                            onClick={handleClearFilters}
+                            sx={{ width: '40%' }}
+                        >
+                            Clear Filters
                         </Button>
                     </Box>
                     {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
@@ -284,39 +316,51 @@ const Flights = () => {
                 <Box sx={{ mt: 4, width: '100%' }}>
                     {loading && <Box display="flex" justifyContent="center"><CircularProgress /></Box>}
                     {!loading && noFlightsFound && (
-                        <Alert severity="info">No flights found for your search criteria.</Alert>
+                        <Alert severity="info" sx={{ mb: 2 }}>No flights found for your search criteria. Showing all flights below.</Alert>
                     )}
-                    {!loading && flights.length > 0 && (
-                        <Grid container spacing={2}>
-                            {flights.map(flight => (
+                    {!loading && displayFlights.length > 0 && (
+                        <Grid container spacing={3}>
+                            {displayFlights.map(flight => (
                                 <Grid item xs={12} key={flight.id}>
-                                    <Card variant="outlined">
+                                    <Card variant="outlined" className="glass-card" sx={{ '&:hover': { boxShadow: '0 8px 32px rgba(0,0,0,0.1)', transform: 'translateY(-4px)' }, transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)', borderRadius: 4, overflow: 'hidden' }}>
                                         <CardContent>
-                                            <Typography variant="h6" component="div">
-                                                {flight.flight_number}: {flight.departure_airport} to {flight.arrival_airport}
-                                            </Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                Depart: {dayjs(flight.departure_time).format('YYYY-MM-DD HH:mm')}
-                                            </Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                Arrive: {dayjs(flight.arrival_time).format('YYYY-MM-DD HH:mm')}
-                                            </Typography>
-                                            <Typography variant="h6" color="primary" mt={1}>
-                                                Price: ${flight.price}
-                                            </Typography>
-                                            <Typography variant="body2">
-                                                Available Seats: {flight.available_seats}
-                                            </Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                Status: {flight.status.replace(/_/g, ' ').toUpperCase()}
-                                            </Typography>
+                                            <Grid container justifyContent="space-between" alignItems="center">
+                                                <Grid item>
+                                                    <Typography variant="h6" component="div" color="primary">
+                                                        {flight.flight_number}: {flight.departure_airport} to {flight.arrival_airport}
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid item>
+                                                    <Typography variant="h5" color="secondary" sx={{ fontWeight: 'bold' }}>
+                                                        ${flight.price}
+                                                    </Typography>
+                                                </Grid>
+                                            </Grid>
+                                            <Box sx={{ mt: 1 }}>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    <strong>Depart:</strong> {dayjs(flight.departure_time).format('YYYY-MM-DD HH:mm')}
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    <strong>Arrive:</strong> {dayjs(flight.arrival_time).format('YYYY-MM-DD HH:mm')}
+                                                </Typography>
+                                                <Typography variant="body2" sx={{ mt: 1 }}>
+                                                    <strong>Available Seats:</strong> {flight.available_seats} / {flight.total_seats}
+                                                </Typography>
+                                                <Typography variant="body2" component="div" sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <strong>Status:</strong>
+                                                    {flight.status === 'on_time' && <Box className="pulse-dot" />}
+                                                    <Box component="span" sx={{ color: flight.status === 'on_time' ? 'success.main' : 'text.secondary', fontWeight: 'bold' }}>
+                                                        {flight.status.replace(/_/g, ' ').toUpperCase()}
+                                                    </Box>
+                                                </Typography>
+                                            </Box>
                                             <Button
                                                 variant="contained"
                                                 color="primary"
-                                                size="small"
+                                                size="medium"
                                                 component={Link}
                                                 to={`/book-flight/${flight.id}`}
-                                                sx={{ mt: 2 }}
+                                                sx={{ mt: 2, px: 4 }}
                                             >
                                                 Book Now
                                             </Button>

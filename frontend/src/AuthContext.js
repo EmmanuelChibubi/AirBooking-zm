@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { jwtDecode } from 'jwt-decode';
+import axios from 'axios';
 
 const AuthContext = createContext(null);
 
@@ -13,6 +14,15 @@ export const AuthProvider = ({ children }) => {
     if (token) {
       try {
         const decodedToken = jwtDecode(token);
+
+        // Check if token is expired
+        const currentTime = Date.now() / 1000;
+        if (decodedToken.exp && decodedToken.exp < currentTime) {
+          console.warn("Token expired, logging out...");
+          logout();
+          return;
+        }
+
         // Assuming your decoded token has a 'username' and 'is_admin' field
         const currentUser = {
           id: decodedToken.user_id,
@@ -56,6 +66,24 @@ export const AuthProvider = ({ children }) => {
     setIsAuthenticated(false);
     setIsAdmin(false);
   };
+
+  // Axios Interceptor to handle 401 errors globally
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response && error.response.status === 401) {
+          console.warn("Unauthorized request detected, logging out...");
+          logout();
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, isAuthenticated, isAdmin, login, logout }}>

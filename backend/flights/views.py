@@ -25,7 +25,7 @@ class AllFlightsView(generics.ListAPIView):
 
 class FlightSearchView(generics.ListAPIView):
     serializer_class = FlightSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         queryset = Flight.objects.all()
@@ -34,6 +34,7 @@ class FlightSearchView(generics.ListAPIView):
         departure_date = self.request.query_params.get('departure_date')
         min_price = self.request.query_params.get('min_price')
         max_price = self.request.query_params.get('max_price')
+        flight_number = self.request.query_params.get('flight_number')
         start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
 
@@ -41,6 +42,8 @@ class FlightSearchView(generics.ListAPIView):
             queryset = queryset.filter(departure_airport__icontains=departure_airport)
         if arrival_airport:
             queryset = queryset.filter(arrival_airport__icontains=arrival_airport)
+        if flight_number:
+            queryset = queryset.filter(flight_number__icontains=flight_number)
         if departure_date:
             queryset = queryset.filter(departure_time__date=departure_date)
         
@@ -53,12 +56,20 @@ class FlightSearchView(generics.ListAPIView):
         if end_date:
             queryset = queryset.filter(departure_time__date__lte=end_date)
             
+        sort_by = self.request.query_params.get('sort_by')
+        sort_order = self.request.query_params.get('sort_order', 'asc')
+
+        if sort_by:
+            if sort_order == 'desc':
+                sort_by = f'-{sort_by}'
+            queryset = queryset.order_by(sort_by)
+
         return queryset
 
 class FlightDetailView(generics.RetrieveAPIView):
     queryset = Flight.objects.all()
     serializer_class = FlightSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
 class BookingCreateView(generics.CreateAPIView):
     serializer_class = BookingSerializer
@@ -70,6 +81,20 @@ class BookingCreateView(generics.CreateAPIView):
         flight = serializer.validated_data['flight']
         seats_reserved = serializer.validated_data.get('seats_reserved', [])
         num_seats_reserved = len(seats_reserved)
+
+        # Check for duplicate seats
+        existing_bookings = Booking.objects.filter(flight=flight)
+        occupied_seats = []
+        for b in existing_bookings:
+            if b.seats_reserved:
+                occupied_seats.extend(b.seats_reserved)
+        
+        for seat in seats_reserved:
+            if seat in occupied_seats:
+                return Response(
+                    {'error': f'Seat {seat} is already occupied. Please select another seat.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         if flight.available_seats >= num_seats_reserved:
             flight.available_seats -= num_seats_reserved
@@ -160,7 +185,7 @@ class AdminFlightStatusUpdateView(generics.UpdateAPIView):
     permission_classes = [permissions.IsAdminUser]
 
 class OccupiedSeatsView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, flight_id, *args, **kwargs):
         occupied_seats = []
